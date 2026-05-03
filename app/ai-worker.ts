@@ -1,5 +1,5 @@
 // AI Worker — 在独立线程运行 expectimax 搜索，主线程不阻塞
-import { Board, Direction, cloneBoard, moveBoard } from './game2048';
+import { Board, Direction, cloneBoard, moveBoard } from '../lib/game2048';
 
 // ─── 配置（与 hint.ts 保持一致）─────────────────────────────────
 const CORNER = 'bottom-left' as const;

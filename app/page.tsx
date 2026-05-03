@@ -202,6 +202,7 @@ export default function Game2048() {
   const [showHistory, setShowHistory] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [aiPlaying, setAiPlaying] = useState(false);
+  const aiPlayingRef = useRef(false);
   const [boardShake, setBoardShake] = useState(false);
 
   /* 提示 & AI */
@@ -440,18 +441,25 @@ export default function Game2048() {
     [hasWon, unlockedIds, elapsedSeconds],
   );
 
+  aiPlayingRef.current = aiPlaying;
+
   /* ───── AI Worker ───── */
   const aiWorkerRef = useRef<Worker | null>(null);
   const aiRunningRef = useRef(false);
 
   useEffect(() => {
-    aiWorkerRef.current = new Worker(new URL('../lib/ai-worker.ts', import.meta.url));
-    aiWorkerRef.current.onmessage = (e: MessageEvent<{ type: string; direction: Direction | null }>) => {
-      if (e.data.type === 'result' && e.data.direction && aiPlaying) {
-        applyMove(e.data.direction);
-      }
-      aiRunningRef.current = false;
-    };
+    try {
+      aiWorkerRef.current = new Worker(new URL('./ai-worker.ts', import.meta.url));
+      aiWorkerRef.current.onmessage = (e: MessageEvent<{ type: string; direction: Direction | null }>) => {
+        if (e.data.type === 'result' && e.data.direction && aiPlayingRef.current) {
+          applyMove(e.data.direction);
+        }
+        aiRunningRef.current = false;
+      };
+      aiWorkerRef.current.onerror = (err) => console.error('AI Worker error:', err);
+    } catch (e) {
+      console.error('AI Worker 创建失败:', e);
+    }
     return () => { aiWorkerRef.current?.terminate(); };
   }, []);
 
