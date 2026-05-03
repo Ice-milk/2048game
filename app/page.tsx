@@ -90,32 +90,21 @@ function clearSave() {
 
 /* ───── 主组件 ───── */
 export default function Game2048() {
-  /* 存档恢复 */
-  const saved = useRef<SavedState | null>(null);
-  if (saved.current === null && typeof window !== 'undefined') {
-    saved.current = loadSave();
-  }
+  /* 客户端就绪标记 —— 解决 hydration mismatch */
+  const [hydrated, setHydrated] = useState(false);
 
-  const [board, setBoard] = useState<Board>(() => {
-    if (saved.current) return saved.current.board;
-    return createInitialBoard();
-  });
-  const [score, setScore] = useState(() => saved.current?.score ?? 0);
-  const [bestScore, setBestScore] = useState(() => {
-    if (typeof window === 'undefined') return 0;
-    if (saved.current) return saved.current.bestScore;
-    const stored = localStorage.getItem(BEST_SCORE_KEY);
-    return stored ? Number(stored) || 0 : 0;
-  });
+  /* 游戏是否已开始 */
+  const [gameStarted, setGameStarted] = useState(false);
+
+  const [board, setBoard] = useState<Board>(createInitialBoard);
+  const [score, setScore] = useState(0);
+  const [bestScore, setBestScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [hasWon, setHasWon] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(false);
   const [lastMove, setLastMove] = useState<Direction | ''>('');
-  const [moveCount, setMoveCount] = useState(() => saved.current?.moveCount ?? 0);
-  const [showDebug] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('debug') === '1';
-  });
+  const [moveCount, setMoveCount] = useState(0);
+  const [showDebug, setShowDebug] = useState(false);
 
   /* debug 陀螺仪数据 */
   const [debugData, setDebugData] = useState({ alpha: 0, beta: 0, gamma: 0 });
@@ -131,16 +120,13 @@ export default function Game2048() {
 
   /* 胜利彩带 */
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showVictoryModal, setShowVictoryModal] = useState(false);
 
-  /* 计时器 —— 支持页面隐藏时暂停 */
-  const accumulatedRef = useRef(saved.current?.accumulatedTime ?? 0);
+  /* 计时器 —— 支持页面隐藏时暂停；游戏未开始时不计时 */
+  const accumulatedRef = useRef(0);
   const resumeTimeRef = useRef(Date.now());
-  const isPausedRef = useRef(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(() =>
-    (saved.current?.accumulatedTime ?? 0) + Math.floor((Date.now() - resumeTimeRef.current) / 1000),
-  );
-  /* 恢复存档后清掉，避免重复恢复 */
-  if (saved.current) saved.current = null;
+  const isPausedRef = useRef(true);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   /* ───── refs ───── */
   const boardRef = useRef(board);
@@ -162,11 +148,35 @@ export default function Game2048() {
   const [newTileIds, setNewTileIds] = useState<Set<number>>(new Set());
   const [mergedTileIds, setMergedTileIds] = useState<Set<number>>(new Set());
 
+  /* ───── 客户端一次性初始化（localStorage / URL 参数等）───── */
+  useEffect(() => {
+    // 恢复存档
+    const save = loadSave();
+    if (save) {
+      setBoard(save.board);
+      setScore(save.score);
+      setMoveCount(save.moveCount);
+      accumulatedRef.current = save.accumulatedTime;
+      resumeTimeRef.current = Date.now();
+      setElapsedSeconds(save.accumulatedTime);
+      setBestScore(save.bestScore);
+      setGameStarted(true);
+    }
+
+    // 加载最佳分数（无存档时也加载历史最佳）
+    const storedBest = localStorage.getItem(BEST_SCORE_KEY);
+    if (storedBest) setBestScore((prev) => Math.max(prev, Number(storedBest) || 0));
+
+    // debug 参数
+    if (new URLSearchParams(window.location.search).get('debug') === '1') {
+      setShowDebug(true);
+    }
+
+    setHydrated(true);
+  }, []);
+
   /* 暗色主题 */
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem(THEME_KEY) === 'dark';
-  });
+  const [darkMode, setDarkMode] = useState(false);
 
   /* 成就 */
   const [unlockedIds, setUnlockedIds] = useState<Set<string>>(() => {
@@ -177,6 +187,7 @@ export default function Game2048() {
     } catch { return new Set(); }
   });
   const [achieveNotify, setAchieveNotify] = useState<AchieveNotify | null>(null);
+  const dismissAchieve = useCallback(() => setAchieveNotify(null), []);
   const highestTileRef = useRef(0);
   const consecutiveMergesRef = useRef(0);
 
@@ -211,9 +222,9 @@ export default function Game2048() {
   gameOverRef.current = gameOver;
   moveCountRef.current = moveCount;
 
-  /* ───── 存档 ───── */
+  /* ───── 存档（仅游戏开始后保存，避免 StrictMode 二次 effect 污染）───── */
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !gameStarted) return;
     const state: SavedState = {
       board,
       score,
@@ -222,17 +233,21 @@ export default function Game2048() {
       bestScore,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  }, [board, score, moveCount, bestScore]);
+  }, [board, score, moveCount, bestScore, gameStarted]);
 
   /* ───── 计时器 ───── */
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || !gameStarted) return;
+    if (isPausedRef.current) {
+      isPausedRef.current = false;
+      resumeTimeRef.current = Date.now();
+    }
     const id = setInterval(() => {
       if (isPausedRef.current) return;
       setElapsedSeconds(accumulatedRef.current + Math.floor((Date.now() - resumeTimeRef.current) / 1000));
     }, 1000);
     return () => clearInterval(id);
-  }, [gameOver]);
+  }, [gameOver, gameStarted]);
 
   /* ───── 页面隐藏时暂停计时 ───── */
   useEffect(() => {
@@ -251,6 +266,12 @@ export default function Game2048() {
   }, []);
 
   /* ───── 暗色主题同步 ───── */
+  useEffect(() => {
+    // hydrate 后从 localStorage 加载主题偏好
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'dark') setDarkMode(true);
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     document.documentElement.classList.toggle('dark', darkMode);
@@ -353,9 +374,10 @@ export default function Game2048() {
         setFloatTexts((prev) => [...prev, ...floats]);
       }
 
-      /* 触发胜利彩带 */
-      if (result.hasWon) {
+      /* 触发胜利彩带 & 弹窗 */
+      if (result.hasWon && !hasWon) {
         setShowConfetti(true);
+        setShowVictoryModal(true);
       }
 
       /* 触觉反馈 —— iOS Safari 不支持 Vibration API，桌面端也静默忽略 */
@@ -503,6 +525,7 @@ export default function Game2048() {
   /* ───── 键盘 ───── */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!gameStarted) return;
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
@@ -523,10 +546,11 @@ export default function Game2048() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [applyMove]);
+  }, [applyMove, gameStarted]);
 
   /* ───── 触屏 ───── */
   useEffect(() => {
+    if (!gameStarted) return;
     const el = boardElRef.current;
     if (!el) return;
 
@@ -554,7 +578,7 @@ export default function Game2048() {
       el.removeEventListener('touchmove', handleMove);
       el.removeEventListener('touchend', handleEnd);
     };
-  }, [applyMove]);
+  }, [applyMove, gameStarted]);
 
   /* ───── 陀螺仪 ───── */
   useEffect(() => {
@@ -663,6 +687,13 @@ export default function Game2048() {
     });
   }, [canRedo, hasWon]);
 
+  /* ───── 开始游戏 ───── */
+  const startGame = () => {
+    setGameStarted(true);
+    resumeTimeRef.current = Date.now();
+    isPausedRef.current = false;
+  };
+
   /* ───── 重新开始 ───── */
   const restart = () => {
     resetTileIdCounter();
@@ -688,7 +719,9 @@ export default function Game2048() {
     consecutiveMergesRef.current = 0;
     setAchieveNotify(null);
     setShowShare(false);
+    setShowVictoryModal(false);
     setAiPlaying(false);
+    setGameStarted(true);
   };
 
   const moveLabel = useMemo(() => {
@@ -712,6 +745,18 @@ export default function Game2048() {
       {/* 胜利彩带 */}
       {showConfetti && <Confetti />}
 
+      {/* 胜利弹窗 */}
+      {showVictoryModal && (
+        <VictoryModal
+          score={score}
+          moves={moveCount}
+          time={formatTime(elapsedSeconds)}
+          darkMode={darkMode}
+          onContinue={() => setShowVictoryModal(false)}
+          onRestart={restart}
+        />
+      )}
+
       <div className="w-full max-w-md space-y-2">
         <header className="text-center">
           <div className="flex items-center justify-center gap-3">
@@ -725,6 +770,11 @@ export default function Game2048() {
             </button>
           </div>
         </header>
+
+        {/* 未开始遮罩 —— 仅在客户端就绪后渲染，避免 hydration mismatch */}
+        {hydrated && !gameStarted && (
+          <StartScreen darkMode={darkMode} onStart={startGame} />
+        )}
 
         <section className={`rounded-[2rem] shadow-sm p-3 space-y-2.5 border border-white/20 ${darkMode ? 'dark-card backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl'}`}>
           {/* 分数 & 统计 */}
@@ -852,7 +902,7 @@ export default function Game2048() {
             ))}
           </div>
 
-          {hasWon && !gameOver && (
+          {hasWon && !gameOver && !showVictoryModal && (
             <div className="rounded-xl bg-yellow-50/70 backdrop-blur-md border border-yellow-200/50 px-3 py-2 text-center text-yellow-800 font-semibold text-sm">
               已合出 2048，还能继续冲更高分。
             </div>
@@ -885,7 +935,7 @@ export default function Game2048() {
 
         {/* 成就弹窗 */}
         {achieveNotify && (
-          <AchievementToast notify={achieveNotify} onDone={() => setAchieveNotify(null)} />
+          <AchievementToast notify={achieveNotify} onDone={dismissAchieve} />
         )}
 
         {/* 历史面板 */}
@@ -915,6 +965,38 @@ export default function Game2048() {
 }
 
 /* ───── 游戏结束弹窗 ───── */
+/* ───── 胜利弹窗 ───── */
+function VictoryModal({ score, moves, time, darkMode, onContinue, onRestart }: { score: number; moves: number; time: string; darkMode: boolean; onContinue: () => void; onRestart: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className={`relative w-full max-w-xs rounded-3xl p-6 shadow-2xl text-center space-y-5 border border-yellow-300/50 ${darkMode ? 'dark-card backdrop-blur-xl' : 'bg-white/90 backdrop-blur-xl'}`}>
+        <div className="text-5xl">🎉</div>
+        <div className="space-y-2">
+          <h2 className={`text-2xl font-extrabold ${darkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>达到 2048！</h2>
+          <p className={`text-sm ${darkMode ? 'dark-muted' : 'text-stone-500'}`}>
+            {score.toLocaleString()} 分 · {moves} 步 · {time}
+          </p>
+        </div>
+        <div className="space-y-2.5">
+          <button
+            onClick={onContinue}
+            className="w-full rounded-full bg-[#007AFF] px-6 py-3 text-white font-bold text-base transition hover:bg-[#0066D6] active:scale-[0.97] shadow-lg shadow-[#007AFF]/30"
+          >
+            继续游戏
+          </button>
+          <button
+            onClick={onRestart}
+            className={`w-full rounded-full px-6 py-2.5 font-medium text-sm transition active:scale-[0.97] ${darkMode ? 'bg-stone-700 text-stone-300 hover:bg-stone-600' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+          >
+            重新开始
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GameOverModal({ score, moves, time, highestTile, darkMode, onRestart, onShare }: { score: number; moves: number; time: string; highestTile: number; darkMode: boolean; onRestart: () => void; onShare: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -946,6 +1028,34 @@ function GameOverModal({ score, moves, time, highestTile, darkMode, onRestart, o
             分享
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───── 开始画面 ───── */
+function StartScreen({ darkMode, onStart }: { darkMode: boolean; onStart: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className={`relative w-full max-w-xs rounded-3xl p-8 shadow-2xl text-center space-y-6 border border-white/20 ${darkMode ? 'dark-card backdrop-blur-xl' : 'bg-white/90 backdrop-blur-xl'}`}>
+        <div className="space-y-2">
+          <div className={`text-5xl font-black tracking-tighter ${darkMode ? 'text-amber-400' : 'text-amber-600'}`}>2048</div>
+          <p className={`text-sm ${darkMode ? 'dark-muted' : 'text-stone-500'}`}>
+            使用 ←↑↓→ 方向键或滑动屏幕
+            <br />
+            合并相同数字，达到 2048！
+          </p>
+        </div>
+        <button
+          onClick={onStart}
+          className="w-full rounded-full bg-[#007AFF] px-6 py-3.5 text-white font-bold text-lg transition hover:bg-[#0066D6] active:scale-[0.97] shadow-lg shadow-[#007AFF]/30"
+        >
+          开始游戏
+        </button>
+        <p className={`text-xs ${darkMode ? 'dark-muted' : 'text-stone-400'}`}>
+          Ctrl+Z 撤销 · Ctrl+Y 重做
+        </p>
       </div>
     </div>
   );
