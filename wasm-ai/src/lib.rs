@@ -109,9 +109,8 @@ fn evaluate(b: &Board) -> f64 {
 // ─── Adaptive Depth ────────────────────────────────────────────────────
 
 fn adepth(empty: usize) -> i32 {
-    if empty >= 12 { 3 } else if empty >= 10 { 4 }
-    else if empty >= 7 { 5 } else if empty >= 5 { 6 }
-    else if empty >= 3 { 7 } else { 8 }
+    if empty >= 12 { 2 } else if empty >= 8 { 3 }
+    else if empty >= 4 { 4 } else { 5 }
 }
 
 // ─── Expectimax (compact, no TT overhead) ─────────────────────────────
@@ -140,9 +139,8 @@ fn chance(b: &Board, depth: i32, alpha: f64, beta: f64) -> f64 {
     if empty.is_empty() { return evaluate(b); }
 
     let nd = depth - 1;
-    let n = if depth >= 7 { empty.len().min(4) }
-        else if depth >= 5 { empty.len().min(5) }
-        else { empty.len() };
+    // 激进采样：每 CHANCE 节点最多 3 格 × 2 = 6 分支
+    let n = empty.len().min(3);
 
     let mut total = 0.0;
     for k in 0..n {

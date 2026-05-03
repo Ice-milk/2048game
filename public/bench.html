@@ -1,0 +1,51 @@
+<!-- AI speed benchmark page -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>WASM Benchmark</title></head><body>
+<pre id="out">Loading WASM...</pre>
+<script type="module">
+const out = document.getElementById('out');
+
+async function main() {
+  // Load WASM
+  const t0 = performance.now();
+  const mod = await import('/wasm-ai/wasm_ai.js');
+  await mod.default();
+  const loadTime = (performance.now() - t0).toFixed(1);
+  out.textContent += `\nWASM loaded in ${loadTime}ms`;
+
+  const { get_best_move } = mod;
+
+  // Test boards at different game stages
+  const tests = [
+    { name: '开局 14空', board: [2,0,2,0, 0,4,0,0, 0,0,0,0, 0,0,0,2] },
+    { name: '中局 8空',  board: [4,2,8,2, 2,16,4,0, 8,4,0,0, 0,2,0,0] },
+    { name: '中局 6空',  board: [8,4,16,2, 4,32,8,4, 2,8,0,0, 0,0,2,0] },
+    { name: '中局 5空',  board: [16,8,4,0, 8,64,16,4, 4,16,8,0, 2,4,0,0] },
+    { name: '后期 4空',  board: [32,16,8,4, 16,128,32,8, 8,32,16,4, 0,4,2,0] },
+    { name: '残局 3空',  board: [64,32,16,8, 32,256,64,16, 8,64,32,0, 4,8,0,2] },
+    { name: '残局 2空',  board: [128,64,32,16, 64,512,128,32, 32,128,64,8, 0,16,4,0] },
+    { name: '残局 1空',  board: [256,128,64,32, 128,1024,256,64, 64,256,128,32, 0,32,16,4] },
+  ];
+
+  for (const t of tests) {
+    const arr = new Uint32Array(t.board);
+    // Warmup
+    get_best_move(arr);
+    // Measure (3 runs, take median)
+    const times = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      get_best_move(arr);
+      times.push(performance.now() - start);
+    }
+    times.sort();
+    const median = times[1].toFixed(1);
+    out.textContent += `\n${t.name}: ${median}ms`;
+  }
+
+  out.textContent += '\n\n✅ Benchmark complete';
+}
+
+main().catch(e => { out.textContent += '\n❌ Error: ' + e.message; });
+</script>
+</body></html>
