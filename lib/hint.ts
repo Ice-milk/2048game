@@ -7,13 +7,13 @@ const BASE_DEPTH = 4;
 
 /**
  * 蛇形权重矩阵 —— 鼓励 tiles 呈蛇形排列：
- * 左上角最重，蜿蜒到右下角
+ * 左下角最重，蜿蜒到右上角
  */
 const SNAKE_WEIGHTS = [
-  [15, 14, 13, 12],
-  [8,  9,  10, 11],
-  [7,  6,  5,  4],
   [0,  1,  2,  3],
+  [7,  6,  5,  4],
+  [8,  9,  10, 11],
+  [15, 14, 13, 12],
 ];
 
 const BOARD_SIZE = 4;
@@ -73,9 +73,9 @@ function evaluate(board: Board): number {
     monotonicityR += Math.max(inc, dec);
   }
 
-  // 角落奖励：最大 tile 在左上角时给 bonus
+  // 角落奖励：最大 tile 在左下角时给 bonus
   let cornerBonus = 0;
-  if (board[0][0] && board[0][0]!.value === maxTile) {
+  if (board[3][0] && board[3][0]!.value === maxTile) {
     cornerBonus = maxTile * 2;
   }
 
