@@ -1,9 +1,9 @@
 import { Board, Direction, cloneBoard, moveBoard } from './game2048';
 
-// ─── Expectimax AI v2 — Based on research: depth 4+ with snake pattern ───────
+// ─── Expectimax AI v3 — 自适应深度 3-8，残局深入搜索 ───────────────
 
-/** 搜索深度：4 平衡性能与强度，游戏后期可加深 */
-const BASE_DEPTH = 4;
+/** 自适应深度上限 */
+const MAX_DEPTH = 8;
 
 /**
  * 角落偏好：'bottom-left' | 'top-left'
@@ -136,9 +136,12 @@ function expectimax(
     const empty = getEmptyCells(board);
     if (empty.length === 0) return evaluate(board);
 
-    // 优化：对每个空格，出 2(90%) 和 4(10%) 的期望值
-    // 但空格多时采样以保持性能
-    const sampleSize = depth >= 3 ? Math.min(empty.length, 6) : empty.length;
+    // 采样策略：深度越深采样越激进（平衡性能与精度）
+    let sampleSize: number;
+    if (depth >= 7)       sampleSize = Math.min(empty.length, 4);
+    else if (depth >= 5)  sampleSize = Math.min(empty.length, 5);
+    else if (depth >= 3)  sampleSize = Math.min(empty.length, 7);
+    else                  sampleSize = empty.length;
 
     let totalScore = 0;
 
@@ -178,13 +181,16 @@ function getEmptyCells(board: Board): [number, number][] {
 }
 
 /**
- * 自适应深度：开局深度浅（快），后期深度深（精确）
+ * 自适应深度：开局浅（快），后期深（精确）
+ * 空格越少意味着越接近残局 → 需要更深搜索
  */
 function adaptiveDepth(emptyCount: number): number {
-  if (emptyCount >= 8) return 3;       // 开局快
-  if (emptyCount >= 5) return BASE_DEPTH;    // 4
-  if (emptyCount >= 3) return BASE_DEPTH + 1; // 5
-  return BASE_DEPTH + 2;                     // 6（残局精确）
+  if (emptyCount >= 10) return 3;  // 大量空格：浅搜
+  if (emptyCount >= 8)  return 4;
+  if (emptyCount >= 6)  return 5;
+  if (emptyCount >= 4)  return 6;
+  if (emptyCount >= 2)  return 7;
+  return MAX_DEPTH;                // ≤1 空格：深度 8 搜到底
 }
 
 /**
