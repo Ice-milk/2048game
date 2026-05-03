@@ -18,7 +18,6 @@ import {
   evaluateAchievements,
 } from '../lib/achievements';
 import { getBestDirection } from '../lib/hint';
-import { ensureReady, getAIMove } from '../lib/wasm-ai';
 
 /* ───── 常量 ───── */
 const BEST_SCORE_KEY = '2048-best-score';
@@ -443,33 +442,56 @@ export default function Game2048() {
     [hasWon, unlockedIds, elapsedSeconds],
   );
 
-  /* ───── AI WASM 初始化 ───── */
-  const wasmReadyRef = useRef(false);
+  /* ───── AI Worker（WASM 异步，主线程零阻塞）───── */
+  const aiWorkerRef = useRef<Worker | null>(null);
+  const aiRunningRef = useRef(false);
+  const aiPlayingRef = useRef(false);
+
   useEffect(() => {
-    ensureReady().then(() => { wasmReadyRef.current = true; });
+    let cancelled = false;
+    const init = async () => {
+      const worker = new Worker(new URL('./ai-worker.ts', import.meta.url));
+      // 主线程拿到结果
+      worker.onmessage = (e: MessageEvent<{ type: string; direction: 'up' | 'down' | 'left' | 'right' | null }>) => {
+        if (e.data.type === 'result' && e.data.direction && aiPlayingRef.current) {
+          applyMove(e.data.direction);
+        }
+        aiRunningRef.current = false;
+      };
+      // 加载 WASM 二进制发给 Worker
+      const wasmRes = await fetch('/wasm-ai/wasm_ai_bg.wasm');
+      const wasmBytes = await wasmRes.arrayBuffer();
+      worker.postMessage({ type: 'init', wasmBytes }, [wasmBytes]);
+      if (!cancelled) aiWorkerRef.current = worker;
+    };
+    init();
+    return () => { cancelled = true; aiWorkerRef.current?.terminate(); };
   }, []);
 
-  /* ───── AI 自动演示（WASM 异步，不阻塞 UI）───── */
+  aiPlayingRef.current = aiPlaying;
+
+  /* ───── AI 自动演示（Worker 异步）───── */
   useEffect(() => {
-    if (!aiPlaying || gameOver || showVictoryModal) return;
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled || !aiPlaying || gameOver || showVictoryModal) return;
-      if (!wasmReadyRef.current) return; // WASM 未就绪，等下一帧
-      const flat = new Uint32Array(16);
+    if (!aiPlaying || gameOver || showVictoryModal) {
+      aiRunningRef.current = false;
+      return;
+    }
+    const tick = () => {
+      if (!aiPlaying || gameOver || showVictoryModal || aiRunningRef.current) return;
+      if (!aiWorkerRef.current) return;
+      aiRunningRef.current = true;
+      const flat: number[] = [];
       const board = boardRef.current;
       for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 4; j++) {
-          flat[i * 4 + j] = board[i][j]?.value ?? 0;
+          flat.push(board[i][j]?.value ?? 0);
         }
       }
-      // 让出主线程执行 WASM
-      await new Promise(r => setTimeout(r, 0));
-      const dir = getAIMove(flat);
-      if (!cancelled && dir) applyMove(dir);
+      aiWorkerRef.current.postMessage({ type: 'search', board: flat });
     };
+    tick();
     const id = setInterval(tick, 100);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => clearInterval(id);
   }, [aiPlaying, gameOver, showVictoryModal, applyMove]);
 
   /* ───── FLIP 动画（仅处理位置滑动）───── */
