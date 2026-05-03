@@ -1,0 +1,15 @@
+{
+  "name": "wasm-ai",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "wasm_ai_bg.wasm",
+    "wasm_ai.js",
+    "wasm_ai.d.ts"
+  ],
+  "main": "wasm_ai.js",
+  "types": "wasm_ai.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

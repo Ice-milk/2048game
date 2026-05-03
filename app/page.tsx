@@ -18,6 +18,7 @@ import {
   evaluateAchievements,
 } from '../lib/achievements';
 import { getBestDirection } from '../lib/hint';
+import { ensureReady, getAIMove } from '../lib/wasm-ai';
 
 /* ───── 常量 ───── */
 const BEST_SCORE_KEY = '2048-best-score';
@@ -203,7 +204,6 @@ export default function Game2048() {
   const [showHistory, setShowHistory] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [aiPlaying, setAiPlaying] = useState(false);
-  const aiPlayingRef = useRef(false);
   const [boardShake, setBoardShake] = useState(false);
 
   /* 提示 & AI */
@@ -443,47 +443,33 @@ export default function Game2048() {
     [hasWon, unlockedIds, elapsedSeconds],
   );
 
-  aiPlayingRef.current = aiPlaying;
-
-  /* ───── AI Worker ───── */
-  const aiWorkerRef = useRef<Worker | null>(null);
-  const aiRunningRef = useRef(false);
-
+  /* ───── AI WASM 初始化 ───── */
+  const wasmReadyRef = useRef(false);
   useEffect(() => {
-    try {
-      aiWorkerRef.current = new Worker(new URL('./ai-worker.ts', import.meta.url));
-      aiWorkerRef.current.onmessage = (e: MessageEvent<{ type: string; direction: Direction | null }>) => {
-        if (e.data.type === 'result' && e.data.direction && aiPlayingRef.current) {
-          applyMove(e.data.direction);
-        }
-        aiRunningRef.current = false;
-      };
-      aiWorkerRef.current.onerror = (err) => console.error('AI Worker error:', err);
-    } catch (e) {
-      console.error('AI Worker 创建失败:', e);
-    }
-    return () => { aiWorkerRef.current?.terminate(); };
+    ensureReady().then(() => { wasmReadyRef.current = true; });
   }, []);
 
-  /* ───── AI 自动演示（Worker 异步，不阻塞 UI）───── */
+  /* ───── AI 自动演示（WASM 异步，不阻塞 UI）───── */
   useEffect(() => {
-    if (!aiPlaying || gameOver || showVictoryModal) {
-      aiRunningRef.current = false;
-      return;
-    }
-    // 发一帧盘面给 Worker
-    const tick = () => {
-      if (!aiPlaying || gameOver || showVictoryModal || aiRunningRef.current) return;
-      aiRunningRef.current = true;
-      aiWorkerRef.current?.postMessage({
-        type: 'search',
-        board: cloneBoard(boardRef.current),
-        timeLimit: 10000,
-      });
+    if (!aiPlaying || gameOver || showVictoryModal) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled || !aiPlaying || gameOver || showVictoryModal) return;
+      if (!wasmReadyRef.current) return; // WASM 未就绪，等下一帧
+      const flat = new Uint32Array(16);
+      const board = boardRef.current;
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          flat[i * 4 + j] = board[i][j]?.value ?? 0;
+        }
+      }
+      // 让出主线程执行 WASM
+      await new Promise(r => setTimeout(r, 0));
+      const dir = getAIMove(flat);
+      if (!cancelled && dir) applyMove(dir);
     };
-    tick();
-    const id = setInterval(tick, 200);
-    return () => clearInterval(id);
+    const id = setInterval(tick, 100);
+    return () => { cancelled = true; clearInterval(id); };
   }, [aiPlaying, gameOver, showVictoryModal, applyMove]);
 
   /* ───── FLIP 动画（仅处理位置滑动）───── */
