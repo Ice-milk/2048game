@@ -101,6 +101,7 @@ export default function Game2048() {
   const [bestScore, setBestScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [hasWon, setHasWon] = useState(false);
+  const hasWonRef = useRef(false);
   const [motionEnabled, setMotionEnabled] = useState(false);
   const [lastMove, setLastMove] = useState<Direction | ''>('');
   const [moveCount, setMoveCount] = useState(0);
@@ -373,8 +374,9 @@ export default function Game2048() {
         setFloatTexts((prev) => [...prev, ...floats]);
       }
 
-      /* 触发胜利彩带 & 弹窗 */
-      if (result.hasWon && !hasWon) {
+      /* 触发胜利彩带 & 弹窗（ref 防重复触发） */
+      if (result.hasWon && !hasWonRef.current) {
+        hasWonRef.current = true;
         setShowConfetti(true);
         setShowVictoryModal(true);
       }
@@ -465,13 +467,13 @@ export default function Game2048() {
 
   /* ───── AI 自动演示（Worker 异步，不阻塞 UI）───── */
   useEffect(() => {
-    if (!aiPlaying || gameOver) {
+    if (!aiPlaying || gameOver || showVictoryModal) {
       aiRunningRef.current = false;
       return;
     }
     // 发一帧盘面给 Worker
     const tick = () => {
-      if (!aiPlaying || gameOver || aiRunningRef.current) return;
+      if (!aiPlaying || gameOver || showVictoryModal || aiRunningRef.current) return;
       aiRunningRef.current = true;
       aiWorkerRef.current?.postMessage({
         type: 'search',
@@ -482,7 +484,7 @@ export default function Game2048() {
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [aiPlaying, gameOver, applyMove]);
+  }, [aiPlaying, gameOver, showVictoryModal, applyMove]);
 
   /* ───── FLIP 动画（仅处理位置滑动）───── */
   useLayoutEffect(() => {
@@ -730,6 +732,7 @@ export default function Game2048() {
     setMoveCount(0);
     setGameOver(false);
     setHasWon(false);
+    hasWonRef.current = false;
     setLastMove('');
     setUndoStack([]);
     setRedoStack([]);
