@@ -6,15 +6,26 @@ import { Board, Direction, cloneBoard, moveBoard } from './game2048';
 const BASE_DEPTH = 4;
 
 /**
- * 蛇形权重矩阵 —— 鼓励 tiles 呈蛇形排列：
- * 左下角最重，蜿蜒到右上角
+ * 角落偏好：'bottom-left' | 'top-left'
+ * 两种模式数学对称，成功率理论上相同
  */
-const SNAKE_WEIGHTS = [
-  [0,  1,  2,  3],
-  [7,  6,  5,  4],
-  [8,  9,  10, 11],
-  [15, 14, 13, 12],
-];
+const CORNER = 'bottom-left' as const;
+
+/** 蛇形权重矩阵（根据 CORNER 自动生成） */
+const SNAKE_WEIGHTS: number[][] = (() => {
+  // 标准左上蛇形：沿行蜿蜒，权重从 15 递减到 0
+  const base = [
+    [15, 14, 13, 12],
+    [8,  9,  10, 11],
+    [7,  6,  5,  4],
+    [0,  1,  2,  3],
+  ];
+  // top-left 原样返回，bottom-left 垂直翻转
+  return CORNER === 'bottom-left' ? [...base].reverse() : base;
+})();
+
+/** 角落检测坐标：对应 CORNER 配置 */
+const CORNER_CELL: [number, number] = [CORNER === 'bottom-left' ? 3 : 0, 0];
 
 const BOARD_SIZE = 4;
 
@@ -73,9 +84,10 @@ function evaluate(board: Board): number {
     monotonicityR += Math.max(inc, dec);
   }
 
-  // 角落奖励：最大 tile 在左下角时给 bonus
+  // 角落奖励：最大 tile 在目标角落时给 bonus
   let cornerBonus = 0;
-  if (board[3][0] && board[3][0]!.value === maxTile) {
+  const [cr, cc] = CORNER_CELL;
+  if (board[cr][cc] && board[cr][cc]!.value === maxTile) {
     cornerBonus = maxTile * 2;
   }
 
