@@ -1,9 +1,7 @@
 use wasm_bindgen::prelude::*;
-use js_sys::Math;
+use std::collections::HashMap;
 
 // ─── Constants ─────────────────────────────────────────────────────────
-
-const BOARD_SIZE: usize = 4;
 
 /// Snake weight matrix for bottom-left corner preference
 const SNAKE_WEIGHTS: [[f64; 4]; 4] = [
@@ -13,25 +11,28 @@ const SNAKE_WEIGHTS: [[f64; 4]; 4] = [
     [15.0, 14.0, 13.0, 12.0],
 ];
 
-/// Corner cell coordinates (bottom-left)
 const CORNER_ROW: usize = 3;
 const CORNER_COL: usize = 0;
 
-// ─── Board Operations ──────────────────────────────────────────────────
-
 type Board = [u32; 16];
 
-fn clone_board(board: &Board) -> Board {
-    *board
+// ─── Transposition Table ───────────────────────────────────────────────
+
+/// Cache key: hash of (board state, depth, is_player)
+type TTCache = HashMap<(u64, i32, bool), f64>;
+
+fn board_hash(board: &Board) -> u64 {
+    let mut h: u64 = 0;
+    for &v in board.iter() {
+        h = h.wrapping_mul(31).wrapping_add(v as u64);
+    }
+    h
 }
+
+// ─── Board Operations ──────────────────────────────────────────────────
 
 fn get_empty_cells(board: &Board) -> Vec<usize> {
     (0..16).filter(|&i| board[i] == 0).collect()
-}
-
-#[inline]
-fn row_col(idx: usize) -> (usize, usize) {
-    (idx / 4, idx % 4)
 }
 
 /// Slide and merge a single row (left direction)
@@ -41,9 +42,7 @@ fn slide_row(row: &[u32; 4]) -> ([u32; 4], u32) {
     let mut pos: usize = 0;
 
     for i in 0..4 {
-        if row[i] == 0 {
-            continue;
-        }
+        if row[i] == 0 { continue; }
         if pos > 0 && result[pos - 1] == row[i] {
             result[pos - 1] *= 2;
             score += result[pos - 1];
@@ -52,310 +51,289 @@ fn slide_row(row: &[u32; 4]) -> ([u32; 4], u32) {
             pos += 1;
         }
     }
-
     (result, score)
 }
 
 fn move_board(board: &Board, direction: u8) -> (Board, u32, bool) {
-    let mut next = clone_board(board);
+    let mut next = *board;
     let mut score_delta = 0u32;
     let mut moved = false;
 
     match direction {
-        0 => {
-            // up
+        0 => { // up
             for col in 0..4 {
-                let col_vals: [u32; 4] = [next[col], next[col + 4], next[col + 8], next[col + 12]];
-                let (slid, score) = slide_row(&col_vals);
+                let vals = [next[col], next[col+4], next[col+8], next[col+12]];
+                let (slid, score) = slide_row(&vals);
                 score_delta += score;
                 for row in 0..4 {
-                    let new_val = slid[row];
-                    if next[row * 4 + col] != new_val {
-                        moved = true;
-                    }
-                    next[row * 4 + col] = new_val;
+                    if next[row*4+col] != slid[row] { moved = true; }
+                    next[row*4+col] = slid[row];
                 }
             }
         }
-        1 => {
-            // down
+        1 => { // down
             for col in 0..4 {
-                let mut col_vals: [u32; 4] = [next[12 + col], next[8 + col], next[4 + col], next[col]];
-                let (slid, score) = slide_row(&col_vals);
+                let vals = [next[12+col], next[8+col], next[4+col], next[col]];
+                let (slid, score) = slide_row(&vals);
                 score_delta += score;
-                col_vals = [slid[3], slid[2], slid[1], slid[0]];
+                let result = [slid[3], slid[2], slid[1], slid[0]];
                 for row in 0..4 {
-                    let new_val = col_vals[row];
-                    if next[row * 4 + col] != new_val {
-                        moved = true;
-                    }
-                    next[row * 4 + col] = new_val;
+                    if next[row*4+col] != result[row] { moved = true; }
+                    next[row*4+col] = result[row];
                 }
             }
         }
-        2 => {
-            // left
+        2 => { // left
             for row in 0..4 {
                 let s = row * 4;
-                let row_vals: [u32; 4] = [next[s], next[s + 1], next[s + 2], next[s + 3]];
-                let (slid, score) = slide_row(&row_vals);
+                let vals = [next[s], next[s+1], next[s+2], next[s+3]];
+                let (slid, score) = slide_row(&vals);
                 score_delta += score;
                 for col in 0..4 {
-                    if next[s + col] != slid[col] {
-                        moved = true;
-                    }
-                    next[s + col] = slid[col];
+                    if next[s+col] != slid[col] { moved = true; }
+                    next[s+col] = slid[col];
                 }
             }
         }
-        3 => {
-            // right
+        3 => { // right
             for row in 0..4 {
                 let s = row * 4;
-                let row_vals: [u32; 4] = [next[s + 3], next[s + 2], next[s + 1], next[s]];
-                let (slid, score) = slide_row(&row_vals);
+                let vals = [next[s+3], next[s+2], next[s+1], next[s]];
+                let (slid, score) = slide_row(&vals);
                 score_delta += score;
                 for col in 0..4 {
-                    let new_val = slid[3 - col];
-                    if next[s + col] != new_val {
-                        moved = true;
-                    }
-                    next[s + col] = new_val;
+                    let v = slid[3-col];
+                    if next[s+col] != v { moved = true; }
+                    next[s+col] = v;
                 }
             }
         }
         _ => {}
     }
-
     (next, score_delta, moved)
 }
 
-/// Add a random tile (2 with 90% prob, 4 with 10%) after a move
-fn add_random_tile(board: &Board) -> Board {
-    let empty = get_empty_cells(board);
-    if empty.is_empty() {
-        return clone_board(board);
-    }
-    let idx = (Math::random() * empty.len() as f64) as usize;
-    let pos = empty[idx];
-    let value = if Math::random() < 0.9 { 2 } else { 4 };
-    let mut next = clone_board(board);
-    next[pos] = value;
-    next
-}
-
-fn can_move(board: &Board) -> bool {
-    let empty = get_empty_cells(board);
-    if !empty.is_empty() {
-        return true;
-    }
-    for i in 0..4 {
-        for j in 0..4 {
-            let cell = board[i * 4 + j];
-            if j < 3 && board[i * 4 + j + 1] == cell {
-                return true;
-            }
-            if i < 3 && board[(i + 1) * 4 + j] == cell {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn has_winning_tile(board: &Board) -> bool {
-    board.iter().any(|&v| v >= 2048)
-}
-
-// ─── Evaluation Function ───────────────────────────────────────────────
+// ─── Evaluation ────────────────────────────────────────────────────────
 
 fn evaluate(board: &Board) -> f64 {
-    let mut empty_cells = 0u32;
+    let mut empty = 0u32;
     let mut max_tile = 0u32;
-    let mut snake_score = 0.0f64;
-    let mut monotonicity_l = 0.0f64;
-    let mut monotonicity_r = 0.0f64;
-    let mut smoothness = 0.0f64;
+    let mut snake = 0.0f64;
+    let mut mono_l = 0.0f64;
+    let mut mono_r = 0.0f64;
+    let mut smooth = 0.0f64;
+    let mut scatter = 0.0f64;
 
     for i in 0..4 {
         for j in 0..4 {
-            let v = board[i * 4 + j];
-            if v == 0 {
-                empty_cells += 1;
-                continue;
-            }
-            if v > max_tile {
-                max_tile = v;
-            }
-            snake_score += v as f64 * SNAKE_WEIGHTS[i][j];
+            let v = board[i*4+j];
+            if v == 0 { empty += 1; continue; }
+            if v > max_tile { max_tile = v; }
+            snake += v as f64 * SNAKE_WEIGHTS[i][j];
 
-            // Smoothness
-            if j < 3 {
-                let right = board[i * 4 + j + 1];
-                if right != 0 {
-                    smoothness -= (v as f64 - right as f64).abs();
-                }
+            if j < 3 && board[i*4+j+1] != 0 {
+                smooth -= (v as f64 - board[i*4+j+1] as f64).abs();
             }
-            if i < 3 {
-                let down = board[(i + 1) * 4 + j];
-                if down != 0 {
-                    smoothness -= (v as f64 - down as f64).abs();
-                }
+            if i < 3 && board[(i+1)*4+j] != 0 {
+                smooth -= (v as f64 - board[(i+1)*4+j] as f64).abs();
             }
         }
     }
 
-    // Monotonicity (rows)
+    // Monotonicity
     for i in 0..4 {
-        let s = i * 4;
-        let mut inc = 0.0f64;
-        let mut dec = 0.0f64;
+        let s = i*4;
+        let (mut inc, mut dec) = (0.0, 0.0);
         for j in 0..3 {
-            let a = board[s + j] as f64;
-            let b = board[s + j + 1] as f64;
+            let a = board[s+j] as f64;
+            let b = board[s+j+1] as f64;
             if a >= b { dec += a - b; }
             if a <= b { inc += b - a; }
         }
-        monotonicity_l += inc.max(dec);
+        mono_l += inc.max(dec);
     }
-    // Monotonicity (columns)
     for j in 0..4 {
-        let mut inc = 0.0f64;
-        let mut dec = 0.0f64;
+        let (mut inc, mut dec) = (0.0, 0.0);
         for i in 0..3 {
-            let a = board[i * 4 + j] as f64;
-            let b = board[(i + 1) * 4 + j] as f64;
+            let a = board[i*4+j] as f64;
+            let b = board[(i+1)*4+j] as f64;
             if a >= b { dec += a - b; }
             if a <= b { inc += b - a; }
         }
-        monotonicity_r += inc.max(dec);
+        mono_r += inc.max(dec);
     }
 
     // Corner bonus
-    let mut corner_bonus = 0.0f64;
-    if board[CORNER_ROW * 4 + CORNER_COL] == max_tile {
-        corner_bonus = max_tile as f64 * 2.0;
+    let corner_bonus = if board[CORNER_ROW*4+CORNER_COL] == max_tile {
+        max_tile as f64 * 2.0
+    } else { 0.0 };
+
+    // Scatter penalty: high-value tiles far from corner
+    let (cr, cc) = (CORNER_ROW as i32, CORNER_COL as i32);
+    for i in 0..4 {
+        for j in 0..4 {
+            let v = board[i*4+j];
+            if v >= 128 {
+                let dist = (i as i32 - cr).abs() + (j as i32 - cc).abs();
+                scatter -= v as f64 * dist as f64 * 0.3;
+            }
+        }
     }
 
-    let empty_weight = if empty_cells <= 3 { 350.0 } else { 270.0 };
+    // Weight tuning: empty cells most important, then snake
+    let empty_weight = if empty <= 3 { 400.0 } else if empty <= 5 { 320.0 } else { 270.0 };
 
-    snake_score * 0.8
-        + monotonicity_l * 1.0
-        + monotonicity_r * 1.0
-        + smoothness * 0.15
+    snake * 0.8
+        + mono_l * 1.2
+        + mono_r * 1.2
+        + smooth * 0.12
+        + scatter * 1.0
         + corner_bonus * 0.5
-        + empty_cells as f64 * empty_weight
-        + (max_tile as f64 + 1.0).log2() * 60.0
+        + empty as f64 * empty_weight
+        + (max_tile as f64 + 1.0).log2() * 50.0
 }
 
-// ─── Adaptive Depth ────────────────────────────────────────────────────
+// ─── Adaptive Depth (per full move cycle = MAX+CHANCE) ─────────────────
 
 fn adaptive_depth(empty_count: usize) -> i32 {
-    if empty_count >= 10 { return 3; }
-    if empty_count >= 8  { return 4; }
-    if empty_count >= 6  { return 5; }
-    if empty_count >= 4  { return 6; }
-    if empty_count >= 2  { return 7; }
-    8
+    // Each unit = one MAX+CHANCE pair
+    if empty_count >= 12 { return 3; }
+    if empty_count >= 10 { return 4; }
+    if empty_count >= 8  { return 5; }
+    if empty_count >= 6  { return 6; }
+    if empty_count >= 4  { return 7; }
+    if empty_count >= 2  { return 8; }
+    10  // ≤1 empty: 深度 10（残局精确搜索）
 }
 
-// ─── Expectimax ────────────────────────────────────────────────────────
+// ─── Expectimax with Transposition Table ───────────────────────────────
 
-fn expectimax(board: &Board, depth: i32, is_player: bool, alpha: f64, beta: f64) -> f64 {
+fn expectimax(
+    board: &Board,
+    depth: i32,
+    is_player: bool,
+    alpha: f64,
+    beta: f64,
+    tt: &mut TTCache,
+) -> f64 {
     if depth == 0 {
         return evaluate(board);
     }
 
-    if is_player {
-        let mut best_score = f64::NEG_INFINITY;
-        let mut alpha = alpha;
-        for d in 0u8..4 {
-            let (next_board, _, moved) = move_board(board, d);
-            if !moved {
-                continue;
-            }
-            let board_after = add_random_tile(&next_board);
-            let score = expectimax(&board_after, depth - 1, false, alpha, beta);
-            if score > best_score {
-                best_score = score;
-            }
-            if score > alpha {
-                alpha = score;
-            }
-            if alpha >= beta {
-                break;
-            }
-        }
-        if best_score.is_infinite() {
-            -1e9
-        } else {
-            best_score
-        }
-    } else {
-        let empty = get_empty_cells(board);
-        if empty.is_empty() {
-            return evaluate(board);
-        }
+    let hash = board_hash(board);
+    let key = (hash, depth, is_player);
 
-        let sample_size = if depth >= 7 {
-            empty.len().min(4)
-        } else if depth >= 5 {
-            empty.len().min(5)
-        } else if depth >= 3 {
-            empty.len().min(7)
-        } else {
-            empty.len()
-        };
-
-        let mut total_score = 0.0f64;
-
-        for k in 0..sample_size {
-            let pos = empty[k];
-
-            // Tile 2 (90% probability)
-            let mut b2 = clone_board(board);
-            b2[pos] = 2;
-            total_score += expectimax(&b2, depth - 1, true, alpha, beta) * 0.9;
-
-            // Tile 4 (10% probability)
-            let mut b4 = clone_board(board);
-            b4[pos] = 4;
-            total_score += expectimax(&b4, depth - 1, true, alpha, beta) * 0.1;
-        }
-
-        if sample_size < empty.len() {
-            total_score = total_score * empty.len() as f64 / sample_size as f64;
-        }
-
-        total_score / empty.len() as f64
+    // Transposition table lookup
+    if let Some(&cached) = tt.get(&key) {
+        return cached;
     }
+
+    let result = if is_player {
+        expectimax_max(board, depth, alpha, beta, tt)
+    } else {
+        expectimax_chance(board, depth, alpha, beta, tt)
+    };
+
+    tt.insert(key, result);
+    result
+}
+
+fn expectimax_max(
+    board: &Board,
+    depth: i32,
+    alpha: f64,
+    beta: f64,
+    tt: &mut TTCache,
+) -> f64 {
+    let mut best = f64::NEG_INFINITY;
+    let mut a = alpha;
+
+    for d in 0u8..4 {
+        let (moved_board, _, moved) = move_board(board, d);
+        if !moved { continue; }
+        // MAX 层不应加随机 tile，进入 CHANCE 层才加
+        let score = expectimax_chance(&moved_board, depth, a, beta, tt);
+        if score > best { best = score; }
+        if score > a { a = score; }
+        if a >= beta { break; }
+    }
+
+    if best.is_infinite() { -1e9 } else { best }
+}
+
+fn expectimax_chance(
+    board: &Board,
+    depth: i32,
+    alpha: f64,
+    beta: f64,
+    tt: &mut TTCache,
+) -> f64 {
+    let empty = get_empty_cells(board);
+    if empty.is_empty() { return evaluate(board); }
+
+    let new_depth = depth - 1;
+
+    // 采样策略：深层少采样，浅层全量
+    let sample_size = if depth >= 8 {
+        empty.len().min(5)
+    } else if depth >= 6 {
+        empty.len().min(6)
+    } else if depth >= 4 {
+        empty.len().min(8)
+    } else {
+        empty.len()
+    };
+
+    let mut total = 0.0f64;
+
+    for k in 0..sample_size {
+        let pos = empty[k];
+
+        let mut b2 = *board;
+        b2[pos] = 2;
+        total += expectimax(&b2, new_depth, true, alpha, beta, tt) * 0.9;
+
+        let mut b4 = *board;
+        b4[pos] = 4;
+        total += expectimax(&b4, new_depth, true, alpha, beta, tt) * 0.1;
+    }
+
+    if sample_size < empty.len() {
+        total *= empty.len() as f64 / sample_size as f64;
+    }
+
+    total / empty.len() as f64
 }
 
 // ─── WASM Exports ──────────────────────────────────────────────────────
 
 #[wasm_bindgen]
 pub fn get_best_move(board_js: &[u32]) -> u8 {
-    if board_js.len() != 16 {
-        return 4; // invalid
-    }
+    if board_js.len() != 16 { return 4; }
 
     let mut board: Board = [0u32; 16];
     board.copy_from_slice(board_js);
 
     let empty_count = get_empty_cells(&board).len();
     let depth = adaptive_depth(empty_count);
+    let mut tt: TTCache = HashMap::with_capacity(65536);
 
-    let mut best_dir: u8 = 4; // 4 = none
+    let mut best_dir: u8 = 4;
     let mut best_score = f64::NEG_INFINITY;
 
-    // Try all 4 directions
+    // 预排序候选方向
+    let mut candidates: Vec<(u8, f64)> = Vec::new();
     for d in 0u8..4 {
-        let (next_board, _, moved) = move_board(&board, d);
-        if !moved {
-            continue;
+        let (mb, _, moved) = move_board(&board, d);
+        if moved {
+            candidates.push((d, evaluate(&mb)));
         }
-        let board_after = add_random_tile(&next_board);
-        let score = expectimax(&board_after, depth, false, f64::NEG_INFINITY, f64::INFINITY);
+    }
+    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    for (d, _) in candidates {
+        let (moved_board, _, _) = move_board(&board, d);
+        let score = expectimax_chance(&moved_board, depth, f64::NEG_INFINITY, f64::INFINITY, &mut tt);
         if score > best_score {
             best_score = score;
             best_dir = d;
@@ -367,9 +345,7 @@ pub fn get_best_move(board_js: &[u32]) -> u8 {
 
 #[wasm_bindgen]
 pub fn evaluate_board(board_js: &[u32]) -> f64 {
-    if board_js.len() != 16 {
-        return 0.0;
-    }
+    if board_js.len() != 16 { return 0.0; }
     let mut board: Board = [0u32; 16];
     board.copy_from_slice(board_js);
     evaluate(&board)
