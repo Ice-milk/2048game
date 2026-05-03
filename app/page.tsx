@@ -210,8 +210,6 @@ export default function Game2048() {
     return getBestDirection(board);
   }, [board, gameOver]);
 
-  const aiTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   /* debug 节流 */
   const debugTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -442,19 +440,40 @@ export default function Game2048() {
     [hasWon, unlockedIds, elapsedSeconds],
   );
 
-  /* ───── AI 自动演示 ───── */
+  /* ───── AI Worker ───── */
+  const aiWorkerRef = useRef<Worker | null>(null);
+  const aiRunningRef = useRef(false);
+
+  useEffect(() => {
+    aiWorkerRef.current = new Worker(new URL('../lib/ai-worker.ts', import.meta.url));
+    aiWorkerRef.current.onmessage = (e: MessageEvent<{ type: string; direction: Direction | null }>) => {
+      if (e.data.type === 'result' && e.data.direction && aiPlaying) {
+        applyMove(e.data.direction);
+      }
+      aiRunningRef.current = false;
+    };
+    return () => { aiWorkerRef.current?.terminate(); };
+  }, []);
+
+  /* ───── AI 自动演示（Worker 异步，不阻塞 UI）───── */
   useEffect(() => {
     if (!aiPlaying || gameOver) {
-      if (aiTimerRef.current) { clearInterval(aiTimerRef.current); aiTimerRef.current = null; }
+      aiRunningRef.current = false;
       return;
     }
-    aiTimerRef.current = setInterval(() => {
-      const dir = getBestDirection(boardRef.current);
-      if (dir) applyMove(dir);
-    }, 150);
-    return () => {
-      if (aiTimerRef.current) { clearInterval(aiTimerRef.current); aiTimerRef.current = null; }
+    // 发一帧盘面给 Worker
+    const tick = () => {
+      if (!aiPlaying || gameOver || aiRunningRef.current) return;
+      aiRunningRef.current = true;
+      aiWorkerRef.current?.postMessage({
+        type: 'search',
+        board: cloneBoard(boardRef.current),
+        timeLimit: 10000,
+      });
     };
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
   }, [aiPlaying, gameOver, applyMove]);
 
   /* ───── FLIP 动画（仅处理位置滑动）───── */
