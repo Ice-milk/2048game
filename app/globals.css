@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Safari 兼容性修复 */
 * {
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
@@ -12,3 +11,111 @@ button {
   -webkit-appearance: none;
   appearance: none;
 }
+
+/* ───── Tile 动画（Spring · Apple 风格）───── */
+@keyframes tile-appear {
+  0%   { transform: scale(0); opacity: 0; }
+  55%  { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes tile-merge-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.38); }
+  65%  { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.tile-new   { animation: tile-appear 280ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.tile-merged { animation: tile-merge-pop 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* ───── 合并飘字（Spring）───── */
+@keyframes float-up {
+  0%   { transform: translateY(0) scale(0.7); opacity: 0; }
+  12%  { transform: translateY(-6px) scale(1.1); opacity: 1; }
+  22%  { transform: translateY(-12px) scale(1); }
+  100% { transform: translateY(-52px) scale(0.8); opacity: 0; }
+}
+.merge-float {
+  animation: float-up 950ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  pointer-events: none;
+}
+
+/* ───── 胜利彩带 ───── */
+@keyframes confetti-fall {
+  0%   { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+}
+@keyframes confetti-sway {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(40px); }
+}
+.confetti-piece {
+  position: fixed; top: -10px; width: 10px; height: 16px; border-radius: 2px;
+  animation: confetti-fall var(--fall-dur,3s) linear forwards, confetti-sway var(--sway-dur,2s) ease-in-out infinite;
+  z-index: 9999; pointer-events: none;
+}
+
+/* ───── 成就弹窗（Spring）───── */
+@keyframes achieve-in {
+  0%   { opacity: 0; transform: translateY(30px) scale(0.85); }
+  50%  { opacity: 1; transform: translateY(-4px) scale(1.04); }
+  70%  { transform: translateY(0) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes achieve-out {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.85); }
+}
+.achieve-enter { animation: achieve-in 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.achieve-leave { animation: achieve-out 250ms cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+
+/* ───── 历史面板（Spring）───── */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.history-panel-enter { animation: slide-up 420ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+/* ───── 棋盘抖动（振动不可用时的视觉替代）───── */
+@keyframes board-shake {
+  0%, 100% { transform: translateX(0); }
+  18%       { transform: translateX(-3px); }
+  36%       { transform: translateX(3px); }
+  54%       { transform: translateX(-2px); }
+  72%       { transform: translateX(1.5px); }
+}
+.board-shake { animation: board-shake 200ms cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+
+/* ───── 提示箭头脉冲 ───── */
+@keyframes hint-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.3); }
+}
+.hint-arrow { animation: hint-pulse 1.2s ease-in-out infinite; }
+
+/* ───── 暗色主题（Apple OLED · systemGray6/5/4）───── */
+html.dark .dark-bg      { background: #000000 !important; }
+html.dark .dark-card    { background: #1C1C1E !important; }
+html.dark .dark-stat    { background: #2C2C2E !important; }
+html.dark .dark-board   { background: #1C1C1E !important; }
+html.dark .dark-card,
+html.dark .dark-stat,
+html.dark .dark-board   { color: #e5e5ea !important; }
+html.dark .dark-text    { color: #f5f5f7 !important; }
+html.dark .dark-muted   { color: #8e8e93 !important; }
+
+/* 暗色 tile 颜色 */
+html.dark [data-tile-color="2"]     { background: #3a3a4a !important; color: #d1d1d6 !important; }
+html.dark [data-tile-color="4"]     { background: #4a4a3a !important; color: #d1d1d6 !important; }
+html.dark [data-tile-color="8"]     { background: #c05717 !important; color: #fff !important; }
+html.dark [data-tile-color="16"]    { background: #d06a20 !important; color: #fff !important; }
+html.dark [data-tile-color="32"]    { background: #e07b30 !important; color: #fff !important; }
+html.dark [data-tile-color="64"]    { background: #e04040 !important; color: #fff !important; }
+html.dark [data-tile-color="128"]   { background: #d4a000 !important; color: #fff !important; }
+html.dark [data-tile-color="256"]   { background: #d4a010 !important; color: #fff !important; }
+html.dark [data-tile-color="512"]   { background: #c49800 !important; color: #fff !important; }
+html.dark [data-tile-color="1024"]  { background: #b8860b !important; color: #fff !important; }
+html.dark [data-tile-color="2048"]  { background: #c8a820 !important; color: #fff !important; box-shadow: 0 0 12px rgba(255,215,0,0.4) !important; }
+html.dark [data-tile-color="4096"]  { background: #a040d0 !important; color: #fff !important; }
+html.dark [data-tile-color="8192"]  { background: #60d040 !important; color: #fff !important; }
+html.dark [data-tile-color="16384"] { background: #2080e0 !important; color: #fff !important; }
+html.dark [data-tile-empty="true"]  { background: #2C2C2E !important; }
