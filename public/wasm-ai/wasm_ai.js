@@ -4,17 +4,6 @@
  * @param {Uint32Array} board_js
  * @returns {number}
  */
-export function evaluate_board(board_js) {
-    const ptr0 = passArray32ToWasm0(board_js, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.evaluate_board(ptr0, len0);
-    return ret;
-}
-
-/**
- * @param {Uint32Array} board_js
- * @returns {number}
- */
 export function get_best_move(board_js) {
     const ptr0 = passArray32ToWasm0(board_js, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;

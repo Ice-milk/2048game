@@ -1,15 +1,12 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export function evaluate_board(board_js: Uint32Array): number;
-
 export function get_best_move(board_js: Uint32Array): number;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly evaluate_board: (a: number, b: number) => number;
     readonly get_best_move: (a: number, b: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
