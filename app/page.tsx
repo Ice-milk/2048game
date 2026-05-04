@@ -17,7 +17,7 @@ import {
   type AchievementState,
   evaluateAchievements,
 } from '../lib/achievements';
-import { getBestDirection } from '../lib/hint';
+
 
 /* ───── 常量 ───── */
 const BEST_SCORE_KEY = '2048-best-score';
@@ -205,11 +205,8 @@ export default function Game2048() {
   const [aiPlaying, setAiPlaying] = useState(false);
   const [boardShake, setBoardShake] = useState(false);
 
-  /* 提示 & AI */
-  const hint = useMemo(() => {
-    if (gameOver) return null;
-    return getBestDirection(board);
-  }, [board, gameOver]);
+  /* 提示 & AI —— 异步 WASM，主线程零阻塞 */
+  const [hint, setHint] = useState<Direction | null>(null);
 
   /* debug 节流 */
   const debugTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -442,6 +439,26 @@ export default function Game2048() {
     [hasWon, unlockedIds, elapsedSeconds],
   );
 
+  /* ───── 推荐方向：异步请求 WASM Worker ───── */
+  useEffect(() => {
+    if (gameOver || aiPlaying) { setHint(null); return; }
+    if (!aiWorkerRef.current) return;
+    // 轻微去抖：等 FLIP 动画开始后再发请求
+    const timer = setTimeout(() => {
+      if (aiRunningRef.current) return;
+      aiRunningRef.current = true;
+      const flat: number[] = [];
+      const b = board;
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          flat.push(b[i][j]?.value ?? 0);
+        }
+      }
+      aiWorkerRef.current?.postMessage({ type: 'search', board: flat });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [board, gameOver, aiPlaying]);
+
   /* ───── AI Worker（WASM 异步，主线程零阻塞）───── */
   const aiWorkerRef = useRef<Worker | null>(null);
   const aiRunningRef = useRef(false);
@@ -451,10 +468,14 @@ export default function Game2048() {
     let cancelled = false;
     const init = async () => {
       const worker = new Worker(new URL('./ai-worker.ts', import.meta.url));
-      // 主线程拿到结果
+      // 主线程拿到结果（AI 自动 / 提示方向共用）
       worker.onmessage = (e: MessageEvent<{ type: string; direction: 'up' | 'down' | 'left' | 'right' | null }>) => {
-        if (e.data.type === 'result' && e.data.direction && aiPlayingRef.current) {
-          applyMove(e.data.direction);
+        if (e.data.type === 'result' && e.data.direction) {
+          if (aiPlayingRef.current) {
+            applyMove(e.data.direction);
+          } else {
+            setHint(e.data.direction);
+          }
         }
         aiRunningRef.current = false;
       };
@@ -1157,17 +1178,21 @@ function Confetti() {
 
 /* ───── 成就弹窗 ───── */
 function AchievementToast({ notify, onDone }: { notify: AchieveNotify; onDone: () => void }) {
+  // 用 ref 保存最新的 onDone，避免 useEffect 依赖变化导致定时器重置
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
   useEffect(() => {
-    if (notify.leaving) {
-      const t = setTimeout(onDone, 300);
-      return () => clearTimeout(t);
-    }
-    const t = setTimeout(() => onDone(), 2500);
+    // 仅挂载时启动定时器，2500ms 后必然关闭
+    const t = setTimeout(() => onDoneRef.current(), 2500);
     return () => clearTimeout(t);
-  }, [notify, onDone]);
+  }, []);
 
   return (
-    <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl bg-yellow-400/90 backdrop-blur-md border border-yellow-300/50 text-stone-900 font-bold flex items-center gap-3 text-sm ${notify.leaving ? 'achieve-leave' : 'achieve-enter'}`}>
+    <div
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl bg-yellow-400/90 backdrop-blur-md border border-yellow-300/50 text-stone-900 font-bold flex items-center gap-3 text-sm cursor-pointer ${notify.leaving ? 'achieve-leave' : 'achieve-enter'}`}
+      onClick={onDone}
+    >
       <div>
         <div className="text-xs opacity-70">成就解锁</div>
         <div>{notify.def.title}</div>
