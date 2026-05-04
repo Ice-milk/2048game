@@ -20,7 +20,6 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         __wbg___wbindgen_throw_9c75d47bf9e7731e: (ptr: number, len: number) => {
           throw new Error(decodeStr(ptr, len));
         },
-        __wbg_random_fc287e2ecb3e2805: () => Math.random(),
         __wbindgen_init_externref_table: () => {
           const table = wasmExports.__wbindgen_externrefs as WebAssembly.Table;
           const offset = table.grow(4);
