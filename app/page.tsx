@@ -189,6 +189,8 @@ export default function Game2048() {
   });
   const [achieveNotify, setAchieveNotify] = useState<AchieveNotify | null>(null);
   const dismissAchieve = useCallback(() => setAchieveNotify(null), []);
+  const unlockedIdsRef = useRef(unlockedIds);
+  useEffect(() => { unlockedIdsRef.current = unlockedIds; }, [unlockedIds]);
   const highestTileRef = useRef(0);
   const consecutiveMergesRef = useRef(0);
 
@@ -417,8 +419,8 @@ export default function Game2048() {
         }
         return changed ? next : prev;
       });
-      /* 弹窗通知（取第一个新成就） */
-      const firstNew = newAchs.find((id) => !unlockedIds.has(id));
+      /* 弹窗通知（取第一个新成就）—— 用 ref 避免闭包过期 */
+      const firstNew = newAchs.find((id) => !unlockedIdsRef.current.has(id));
       if (firstNew) {
         const def = ACHIEVEMENTS.find((a) => a.id === firstNew)!;
         setAchieveNotify({ def, leaving: false });
