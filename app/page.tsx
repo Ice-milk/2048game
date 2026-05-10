@@ -936,14 +936,24 @@ export default function Game2048() {
           <div ref={boardElRef} className={`rounded-2xl p-2.5 touch-none select-none relative ${boardShake ? 'board-shake' : ''} ${darkMode ? 'dark-board' : 'bg-stone-300/60 backdrop-blur-sm'}`}>
             <div className="grid grid-cols-4 gap-1.5">
               {board.map((row, i) =>
-                row.map((cell, j) => (
-                  <TileCellView
-                    key={cell ? cell.id : `empty-${i}-${j}`}
-                    cell={cell}
-                    newIds={newTileIds}
-                    mergedIds={mergedTileIds}
-                  />
-                )),
+                row.map((cell, j) => {
+                  if (!hydrated) {
+                    return (
+                      <div
+                        key={`empty-${i}-${j}`}
+                        className="aspect-square rounded-2xl bg-stone-200"
+                      />
+                    );
+                  }
+                  return (
+                    <TileCellView
+                      key={cell ? cell.id : `empty-${i}-${j}`}
+                      cell={cell}
+                      newIds={newTileIds}
+                      mergedIds={mergedTileIds}
+                    />
+                  );
+                }),
               )}
             </div>
 
